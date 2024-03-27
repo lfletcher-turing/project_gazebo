@@ -1,5 +1,5 @@
 {
-    "world_name": "empty",
+    "world_name": "grass",
     "drones": [
         {
             "model_type": "quadrotor_base",
@@ -14,7 +14,13 @@
                 0,
                 0.0
             ],
-            "flight_time": 60
+            "flight_time": 60,
+            "payload": [
+                {
+                    "model_name": "hd_camera",
+                    "model_type": "hd_camera"
+                }
+            ]
         }
-    ]
+    ]   
 }

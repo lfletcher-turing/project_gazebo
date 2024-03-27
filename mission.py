@@ -43,11 +43,12 @@ def drone_run(drone_interface: DroneInterface):
     sleep(sleep_time)
 
     ##### GO TO #####
-    for goal in path:
-        print(f"Go to with path facing {goal}")
-        drone_interface.go_to.go_to_point_path_facing(goal, speed=speed)
-        print("Go to done")
-    sleep(sleep_time)
+    while True:
+        for goal in path:
+            print(f"Go to with path facing {goal}")
+            drone_interface.go_to.go_to_point_path_facing(goal, speed=speed)
+            print("Go to done")
+            sleep(sleep_time)
 
     ##### LAND #####
     print("Landing")
