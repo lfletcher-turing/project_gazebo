@@ -1,9 +1,11 @@
+import time
 import numpy as np
 from typing import List
 import rclpy
 from as2_python_api.drone_interface_teleop import DroneInterfaceTeleop
 from as2_python_api.behavior_actions.behavior_handler import BehaviorHandler
 from as2_msgs.msg import BehaviorStatus
+import threading
 
 dim = 5.0
 height = 5.0
@@ -14,6 +16,18 @@ path = [
         [dim, -dim, height],
         [dim, dim, height]
     ]
+
+class ThreadManager:
+    @staticmethod
+    def run_in_parallel(func, args_list):
+        threads = []
+        for args in args_list:
+            thread = threading.Thread(target=func, args=args)
+            threads.append(thread)
+            thread.start()
+
+        for thread in threads:
+            thread.join()
 
 class FlockingSwarm:
     def __init__(self, drones_ns: List[str], config: dict, migration_path: List[List[float]] = path):
@@ -39,10 +53,15 @@ class FlockingSwarm:
         for drone in self.drones:
             drone.offboard()
 
-    def takeoff(self, altitude: float):
-        for drone in self.drones.values():
-            drone.do_behavior("takeoff", altitude, 0.7, False)
-        self.wait()
+
+
+    # def takeoff(self, altitude: float):
+    #     for drone in self.drones.values():
+    #         drone.do_behavior("takeoff", altitude, 0.7, False)
+    #     self.wait()
+
+    def takeoff(self):
+        ThreadManager.run_in_parallel(FlockingDrone.takeoff, [(drone,) for drone in self.drones.values()])
 
     def shutdown(self):
         for drone in self.drones.values():
@@ -60,12 +79,16 @@ class FlockingSwarm:
             drone.do_behavior("land", 0.4, False)
         self.wait()
 
+    # def flock(self):
+    #     while True:
+    #         self.update_migration_index()
+    #         for drone in self.drones.values():
+    #             drone.set_migration_index(self.migration_index)
+    #             drone.flock()
+        
     def flock(self):
-        while True:
-            self.update_migration_index()
-            for drone in self.drones.values():
-                drone.set_migration_index(self.migration_index)
-                drone.flock()
+            ThreadManager.run_in_parallel(FlockingDrone.flock, [(drone,) for drone in self.drones.values()])
+
     
     def update_migration_index(self):
         if self.migration_path:
@@ -79,12 +102,19 @@ class FlockingSwarm:
                 self.migration_index = (self.migration_index + 1) % len(self.migration_path)
                 print(f"Switching to migration index {self.migration_index}")
 
+            for drone in self.drones.values():
+                drone.set_migration_index(self.migration_index)
 
+
+    def run_migration(self):
+        while True:
+            self.update_migration_index()
+            time.sleep(1.0)
 
 class FlockingDrone(DroneInterfaceTeleop):
 
     def __init__(self, namespace: str, my_id: int, config: dict):
-        super().__init__(namespace)
+        super().__init__(namespace, verbose=False, use_sim_time=True)
         self.my_id = my_id
         self.config = config
         self.other_drones = None
@@ -93,24 +123,26 @@ class FlockingDrone(DroneInterfaceTeleop):
         self.detections = []
         self.poses = {}
 
-    def flock(self):
-        # Get command from reynolds
-        command = self.get_command_reynolds()
-        
-        # Low-pass filter command
-        command = self.smooth_command(command)
+    def flock(self, migration_index: int = 0):
+        while True:
+            # Get command from reynolds
+            command = self.get_command_reynolds()
+            
+            # Low-pass filter command
+            command = self.smooth_command(command)
 
-        # Scale by gain and clip to max speed 
-        command = self.process_command(command)
+            # Scale by gain and clip to max speed 
+            command = self.process_command(command)
 
-        # Altitude control
-        command = self.add_altitude_control(command)
+            # Altitude control
+            command = self.add_altitude_control(command)
 
-        # Add migration 
-        command = self.add_migration(command)
-        
-        # Send velocity command
-        self.send_velocity_command(command)
+            # Add migration 
+            command = self.add_migration(command, migration_index)
+            
+            # Send velocity command
+            self.send_velocity_command(command)
+            time.sleep(0.1)
 
     def get_command_reynolds(self):
         # Use either visual detections or other drones poses
@@ -121,26 +153,36 @@ class FlockingDrone(DroneInterfaceTeleop):
         
         # Cohesion 
         coh = self.cohesion(positions_rel)
+
+        velocities_rel = np.zeros((len(self.other_drones), 3))
         
         # Alignment
-        align = self.alignment(positions_rel)
+        align = self.alignment(velocities_rel)
 
         # Combine behaviors
         command = (
-            self.config['separation_gain'] * sep +
+           -self.config['separation_gain'] * sep.mean(axis=0) +
             self.config['cohesion_gain'] * coh + 
             self.config['alignment_gain'] * align
         )
 
         return command
     
+    # def separation(self, positions_rel: List[np.ndarray]) -> np.ndarray:
+    #     sep = np.zeros(3)
+    #     for pos in positions_rel:
+    #         dist = np.linalg.norm(pos)
+    #         if 0 < dist < self.config['separation_dist']:
+    #             sep -= pos / dist
+    #     return sep
+
     def separation(self, positions_rel: List[np.ndarray]) -> np.ndarray:
-        sep = np.zeros(3)
-        for pos in positions_rel:
-            dist = np.linalg.norm(pos)
-            if 0 < dist < self.config['separation_dist']:
-                sep -= pos / dist
-        return sep
+        positions = np.array(positions_rel)
+        distances = np.linalg.norm(positions, axis=1)
+
+        dist_inv = positions / distances[:, np.newaxis] ** 2
+
+        return dist_inv
 
     def cohesion(self, positions_rel: List[np.ndarray]) -> np.ndarray:
         coh = np.zeros(3)
@@ -150,8 +192,7 @@ class FlockingDrone(DroneInterfaceTeleop):
     
     def alignment(self, velocities_rel: List[np.ndarray]) -> np.ndarray:
         align = np.zeros(3)
-        if velocities_rel:
-            align = np.mean(velocities_rel, axis=0)
+        align = np.mean(velocities_rel, axis=0)
         return align
 
     def smooth_command(self, command: np.ndarray) -> np.ndarray:
@@ -178,10 +219,13 @@ class FlockingDrone(DroneInterfaceTeleop):
             command[2] = self.config['altitude_gain'] * alt_error
         return command
             
-    def add_migration(self, command: np.ndarray) -> np.ndarray:
+    def add_migration(self, command: np.ndarray, migration_index) -> np.ndarray:
         if self.migration_path:
-            current_goal =np.array(self.migration_path[self.migration_index])
+            current_goal =np.array(self.migration_path[migration_index])
+            # set z component to zero
+            current_goal[2] = 0.0
             current_position = np.array(self.position)
+            current_position[2] = 0.0
             direction = current_goal - current_position
             distance = np.linalg.norm(direction)
             direction = direction / distance
@@ -208,8 +252,9 @@ class FlockingDrone(DroneInterfaceTeleop):
         
         # print the command
         # print(f"Sending command {command} to drone {self.my_id}")
+        ThreadManager.run_in_parallel(self.motion_ref_handler.speed.send_speed_command_with_yaw_speed, [(command, frame_id, yaw_speed)])
         
-        self.motion_ref_handler.speed.send_speed_command_with_yaw_speed(command,  frame_id, yaw_speed)
+        # self.motion_ref_handler.speed.send_speed_command_with_yaw_speed(command,  frame_id, yaw_speed)
 
 
 
@@ -253,11 +298,18 @@ class FlockingDrone(DroneInterfaceTeleop):
         if self.current_behavior.status == BehaviorStatus.IDLE:
             return True
         return False
+    
+    def takeoff(self):
+        self.arm()
+        self.offboard()
+        self.takeoff(1.0, 0.7)
+        time.sleep(1)
+
 
 if __name__ == '__main__':    
-    drones_ns = ['drone0', 'drone1', 'drone2']
+    drones_ns = ['drone0', 'drone1', 'drone2', 'drone3', 'drone4', 'drone5', 'drone6', 'drone7', 'drone8']
     config = {
-        'separation_gain': 5.0,
+        'separation_gain': 10.0,
         'cohesion_gain': 1.0,
         'alignment_gain': 1.0,
         'separation_dist': 2.0,
@@ -275,6 +327,10 @@ if __name__ == '__main__':
 
     swarm = FlockingSwarm(drones_ns, config)
 
-    swarm.get_ready()
-    swarm.takeoff(1.0)
+    swarm.takeoff()
     swarm.flock()
+
+    migration_thread = threading.Thread(target=swarm.run_migration)
+    migration_thread.start()
+
+    migration_thread.join()

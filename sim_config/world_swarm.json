@@ -1,65 +1,141 @@
 {
-    "world_name": "empty",
-    "drones": [
+  "world_name": "empty",
+  "drones": [
       {
-        "model_type": "quadrotor_base",
-        "model_name": "drone0",
-        "xyz": [
-          -2.0,
-          0.0,
-          0.3
-        ],
-        "rpy": [
-          0,
-          0,
-          0.0
-        ],
-        "payload": [
-          {
-            "model_name": "hd_camera",
-            "model_type": "hd_camera"
-          }
-        ]
+          "model_type": "quadrotor_base",
+          "model_name": "drone0",
+          "xyz": [
+              -2.0,
+              0.0,
+              0.3
+          ],
+          "rpy": [
+              0,
+              0,
+              0.0
+          ],
+          "flight_time": 60
       },
       {
-        "model_type": "quadrotor_base",
-        "model_name": "drone1",
-        "xyz": [
-          2.0,
-          0.0,
-          0.3
-        ],
-        "rpy": [
-          0,
-          0,
-          0.0
-        ],
-        "payload": [
-          {
-            "model_name": "hd_camera",
-            "model_type": "hd_camera"
-          }
-        ]
+          "model_type": "quadrotor_base",
+          "model_name": "drone1",
+          "xyz": [
+              2.0,
+              0.0,
+              0.3
+          ],
+          "rpy": [
+              0,
+              0,
+              0.0
+          ],
+          "flight_time": 60
       },
       {
-        "model_type": "quadrotor_base",
-        "model_name": "drone2",
-        "xyz": [
-          0.0,
-          0.0,
-          0.3
-        ],
-        "rpy": [
-          0,
-          0,
-          0.0
-        ],
-        "payload": [
-          {
-            "model_name": "hd_camera",
-            "model_type": "hd_camera"
-          }
-        ]
-      }
-    ]
-  }
+          "model_type": "quadrotor_base",
+          "model_name": "drone2",
+          "xyz": [
+              0.0,
+              0.0,
+              0.3
+          ],
+          "rpy": [
+              0,
+              0,
+              0.0
+          ],
+          "flight_time": 60
+      },
+        {
+            "model_type": "quadrotor_base",
+            "model_name": "drone3",
+            "xyz": [
+                0.0,
+                2.0,
+                0.3
+            ],
+            "rpy": [
+                0,
+                0,
+                0.0
+            ],
+            "flight_time": 60
+        },
+        {
+            "model_type": "quadrotor_base",
+            "model_name": "drone4",
+            "xyz": [
+                0.0,
+                -2.0,
+                0.3
+            ],
+            "rpy": [
+                0,
+                0,
+                0.0
+            ],
+            "flight_time": 60
+        },
+        {
+            "model_type": "quadrotor_base",
+            "model_name": "drone5",
+            "xyz": [
+                2.0,
+                2.0,
+                0.3
+            ],
+            "rpy": [
+                0,
+                0,
+                0.0
+            ],
+            "flight_time": 60
+        },
+        {
+            "model_type": "quadrotor_base",
+            "model_name": "drone6",
+            "xyz": [
+                -2.0,
+                -2.0,
+                0.3
+            ],
+            "rpy": [
+                0,
+                0,
+                0.0
+            ],
+            "flight_time": 60
+        },
+        {
+            "model_type": "quadrotor_base",
+            "model_name": "drone7",
+            "xyz": [
+                2.0,
+                -2.0,
+                0.3
+            ],
+            "rpy": [
+                0,
+                0,
+                0.0
+            ],
+            "flight_time": 60
+        },
+        {
+            "model_type": "quadrotor_base",
+            "model_name": "drone8",
+            "xyz": [
+                -2.0,
+                2.0,
+                0.3
+            ],
+            "rpy": [
+                0,
+                0,
+                0.0
+            ],
+            "flight_time": 60
+        }
+
+  ]
+}
