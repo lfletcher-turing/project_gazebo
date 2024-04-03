@@ -14,7 +14,14 @@
               0,
               0.0
           ],
-          "flight_time": 60
+          "flight_time": 60,
+          "payload": [
+            {
+                "model_name": "vga_camera",
+                "model_type": "vga_camera"
+            }
+          ]
+
       },
       {
           "model_type": "quadrotor_base",
@@ -29,7 +36,13 @@
               0,
               0.0
           ],
-          "flight_time": 60
+          "flight_time": 60,
+            "payload": [
+                {
+                    "model_name": "vga_camera",
+                    "model_type": "vga_camera"
+                }
+            ]
       },
       {
           "model_type": "quadrotor_base",
@@ -44,98 +57,13 @@
               0,
               0.0
           ],
-          "flight_time": 60
-      },
-        {
-            "model_type": "quadrotor_base",
-            "model_name": "drone3",
-            "xyz": [
-                0.0,
-                2.0,
-                0.3
-            ],
-            "rpy": [
-                0,
-                0,
-                0.0
-            ],
-            "flight_time": 60
-        },
-        {
-            "model_type": "quadrotor_base",
-            "model_name": "drone4",
-            "xyz": [
-                0.0,
-                -2.0,
-                0.3
-            ],
-            "rpy": [
-                0,
-                0,
-                0.0
-            ],
-            "flight_time": 60
-        },
-        {
-            "model_type": "quadrotor_base",
-            "model_name": "drone5",
-            "xyz": [
-                2.0,
-                2.0,
-                0.3
-            ],
-            "rpy": [
-                0,
-                0,
-                0.0
-            ],
-            "flight_time": 60
-        },
-        {
-            "model_type": "quadrotor_base",
-            "model_name": "drone6",
-            "xyz": [
-                -2.0,
-                -2.0,
-                0.3
-            ],
-            "rpy": [
-                0,
-                0,
-                0.0
-            ],
-            "flight_time": 60
-        },
-        {
-            "model_type": "quadrotor_base",
-            "model_name": "drone7",
-            "xyz": [
-                2.0,
-                -2.0,
-                0.3
-            ],
-            "rpy": [
-                0,
-                0,
-                0.0
-            ],
-            "flight_time": 60
-        },
-        {
-            "model_type": "quadrotor_base",
-            "model_name": "drone8",
-            "xyz": [
-                -2.0,
-                2.0,
-                0.3
-            ],
-            "rpy": [
-                0,
-                0,
-                0.0
-            ],
-            "flight_time": 60
-        }
-
+          "flight_time": 60,
+            "payload": [
+                {
+                    "model_name": "vga_camera",
+                    "model_type": "vga_camera"
+                }
+            ]
+      }
   ]
 }

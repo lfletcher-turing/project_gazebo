@@ -7,10 +7,11 @@ usage() {
     echo "      -r: record rosbag"
     echo "      -t: launch keyboard teleoperation"
     echo "      -n: drone namespace, default is drone0"
+    echo "      -y: launch yolo"
 }
 
 # Arg parser
-while getopts "bmrtn" opt; do
+while getopts "bmrtny" opt; do
   case ${opt} in
     b )
       behavior_tree="true"
@@ -26,6 +27,9 @@ while getopts "bmrtn" opt; do
       ;;
     n )
       drone_namespace="${OPTARG}"
+      ;;
+    y )
+      yolo="true"
       ;;
     \? )
       echo "Invalid option: -$OPTARG" >&2
@@ -43,6 +47,7 @@ while getopts "bmrtn" opt; do
 done
 
 source utils/tools.bash
+source ~/yolo_ws/install/setup.bash
 
 # Shift optional args
 shift $((OPTIND -1))
@@ -50,13 +55,14 @@ shift $((OPTIND -1))
 ## DEFAULTS
 behavior_tree=${behavior_tree:="false"}
 swarm=${swarm:="false"}
+yolo=${yolo:="false"}
 record_rosbag=${record_rosbag:="false"}
 launch_keyboard_teleop=${launch_keyboard_teleop:="false"}
 drone_namespace=${drone_namespace:="drone"}
 
 if [[ ${swarm} == "true" ]]; then
   simulation_config="sim_config/world_swarm.json"
-  num_drones=9
+  num_drones=3
 else
   simulation_config="sim_config/world.json" 
   num_drones=1
@@ -84,6 +90,15 @@ if [[ ${launch_keyboard_teleop} == "true" ]]; then
   tmuxinator start -n keyboard_teleop -p tmuxinator/keyboard_teleop.yml simulation=true drone_namespace=$(list_to_string "${drone_ns[@]}") &
   wait
 fi
+
+if [[ ${yolo} == "true" ]]; then
+for ns in "${drone_ns[@]}"
+do
+  tmuxinator start -n yolo -p tmuxinator/yolo.yml drone_namespace=${ns} &
+  wait
+done
+fi
+
 
 tmuxinator start -n gazebo -p tmuxinator/gazebo.yml simulation_config=${simulation_config} &
 wait

@@ -17,9 +17,10 @@
             "flight_time": 60,
             "payload": [
                 {
-                    "model_name": "hd_camera",
-                    "model_type": "hd_camera"
+                    "model_name": "vga_camera",
+                    "model_type": "vga_camera"
                 }
+
             ]
         }
     ]   
