@@ -3,9 +3,9 @@
 <%
 # Input parameters
 drone_namespace = @settings["drone_namespace"]
+camera_namespace = @settings["camera_namespace"]
 %>
 
-echo "Drone namespace: <%= drone_namespace %>"
 
 attach: true
 root: ./
@@ -15,6 +15,6 @@ windows:
   - yolo:
       layout:
       panes:
-        - ros2 launch yolov8_bringup yolov9.launch.py input_image_topic:=/<%= drone_namespace %>/sensor_measurements/vga_camera/image_raw
+        - ros2 launch yolov8_bringup yolov9.launch.py input_image_topic:=/<%= drone_namespace %>/sensor_measurements/<%=camera_namespace %>/image_raw namespace:=/<%= drone_namespace %>/<%=camera_namespace %>/yolo
 
 

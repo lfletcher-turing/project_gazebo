@@ -5,14 +5,93 @@ mission_swarm.py
 """
 
 import sys
+import threading
 from typing import List, Optional
 from math import radians, cos, sin
 from itertools import cycle, islice
+
 import rclpy
+from rclpy.node import Node
+from rclpy.timer import Timer
 from as2_msgs.msg import YawMode
 from as2_msgs.msg import BehaviorStatus
 from as2_python_api.drone_interface import DroneInterface
 from as2_python_api.behavior_actions.behavior_handler import BehaviorHandler
+from yolov8_msgs.msg import DetectionArray
+
+class YOLOSubscriber(Node):
+    """ A simple subscriber node for YOLO detection and tracking """
+    
+    def __init__(self, namespace: str):
+        super().__init__(f"{namespace}_yolo_subscriber")
+
+        self.detection_subscription = self.create_subscription(
+            DetectionArray,
+            f"/{namespace}/yolo/detections",
+            self.yolo_detection_callback,
+            10)
+        
+        self.tracking_subscription = self.create_subscription(
+            DetectionArray,
+            f"/{namespace}/yolo/tracking",
+            self.yolo_tracking_callback,
+            10)
+
+        print(f"YOLO subscriber for {namespace} created")
+
+        self.is_dancing = False
+        self.log_timer = None
+        self.last_detection_msg = None
+        self.last_tracking_msg = None
+
+    def start_dancing(self):
+        self.is_dancing = True
+        self.log_timer = self.create_timer(1.0, self.log_callback)
+
+    def stop_dancing(self):
+        self.is_dancing = False
+        if self.log_timer is not None:
+            self.destroy_timer(self.log_timer)
+            self.log_timer = None
+
+    def yolo_detection_callback(self, msg):
+        if self.is_dancing:
+            self.last_detection_msg = msg
+
+    def yolo_tracking_callback(self, msg):
+        if self.is_dancing:
+            self.last_tracking_msg = msg
+
+    def log_callback(self):
+        if self.last_detection_msg is not None:
+            print("YOLO detection triggered")
+            """YOLO detection callback"""
+            if len(self.last_detection_msg.detections) > 0:
+                detection = self.last_detection_msg.detections[0]  # Assuming you want to use the first detection
+                bbox_center = detection.bbox.center.position
+                bbox_size = detection.bbox.size
+                
+                self.get_logger().info(f"YOLO detection triggered")
+                self.get_logger().info(f"Bounding box center: x={bbox_center.x}, y={bbox_center.y}")
+                self.get_logger().info(f"Bounding box size: x={bbox_size.x}, y={bbox_size.y}")
+            else:
+                self.get_logger().info(f"No detection")
+
+        if self.last_tracking_msg is not None:
+            """YOLO tracking callback"""
+            if len(self.last_tracking_msg.detections) > 0:
+                detection = self.last_tracking_msg.detections[0]  # Assuming you want to use the first detection
+                bbox_center = detection.bbox.center.position
+                bbox_size = detection.bbox.size
+                
+                self.get_logger().info(f"YOLO tracking triggered")
+                self.get_logger().info(f"Bounding box center: x={bbox_center.x}, y={bbox_center.y}")
+                self.get_logger().info(f"Bounding box size: x={bbox_size.x}, y={bbox_size.y}")
+            else:
+                self.get_logger().info(f"No tracking")
+
+        self.last_detection_msg = None
+        self.last_tracking_msg = None
 
 
 class Choreographer:
@@ -81,6 +160,15 @@ class Dancer(DroneInterface):
 
         self.current_behavior: Optional[BehaviorHandler] = None
 
+        self.yolo_subscriber = YOLOSubscriber(namespace)
+
+    def start_yolo(self):
+        self.yolo_subscriber.is_running = True
+
+    def stop_yolo(self):
+        self.yolo_subscriber.is_running = False
+
+
     def reset(self) -> None:
         """Set current waypoint in path to start point"""
         self.__current = 0
@@ -96,6 +184,7 @@ class Dancer(DroneInterface):
         self.do_behavior("go_to", point[0], point[1], point[2], self.__speed,
                          self.__yaw_mode, self.__yaw_angle, self.__frame_id, False)
         self.__current += 1
+
 
     def goal_reached(self) -> bool:
         """Check if current behavior has finished"""
@@ -140,6 +229,7 @@ class SwarmConductor:
         for drone in self.drones.values():
             drone.arm()
             drone.offboard()
+            
 
     def takeoff(self):
         """Takeoff swarm and wait for all drones"""
@@ -156,10 +246,17 @@ class SwarmConductor:
     def dance(self):
         """Perform swarm choreography"""
         self.reset_point()
+
+        for drone in self.drones.values():
+            drone.yolo_subscriber.start_dancing()
+
         for _ in range(len(get_path(0))):
             for drone in self.drones.values():
                 drone.go_to_next()
             self.wait()
+        
+        for drone in self.drones.values():
+            drone.yolo_subscriber.stop_dancing()
 
 
 def get_path(i: int) -> list:
@@ -200,6 +297,17 @@ def main():
     rclpy.init()
     swarm = SwarmConductor(drones_ns, verbose=False,
                            use_sim_time=True)
+    
+    yolo_subscribers = []
+    for drone in swarm.drones.values():
+        yolo_subscribers.append(drone.yolo_subscriber)
+
+    executor = rclpy.executors.MultiThreadedExecutor()
+    for subscriber in yolo_subscribers:
+        executor.add_node(subscriber)
+
+    executor_thread = threading.Thread(target=executor.spin, daemon=True)
+    executor_thread.start()
 
     if confirm("Takeoff"):
         swarm.get_ready()

@@ -17,11 +17,30 @@
           "flight_time": 60,
           "payload": [
             {
-                "model_name": "vga_camera",
-                "model_type": "vga_camera"
+                "model_name": "front_camera",
+                "model_type": "front_camera",
+                "rpy": [0, 0, 0],
+                "xyz": [0.15, 0, 0.0]
+            },
+            {
+                "model_name": "rear_camera",
+                "model_type": "rear_camera",
+                "rpy": [0, 0, 3.14159],
+                "xyz": [-0.15, 0, 0.0]
+            },
+            {
+                "model_name": "left_camera",
+                "model_type": "left_camera",
+                "rpy": [0, 0, 1.5708],
+                "xyz": [0, 0.15, 0.0]
+            },
+            {
+                "model_name": "right_camera",
+                "model_type": "right_camera",
+                "rpy": [0, 0, -1.5708],
+                "xyz": [0, -0.15, 0.0]
             }
-          ]
-
+        ]
       },
       {
           "model_type": "quadrotor_base",
@@ -37,12 +56,32 @@
               0.0
           ],
           "flight_time": 60,
-            "payload": [
-                {
-                    "model_name": "vga_camera",
-                    "model_type": "vga_camera"
-                }
-            ]
+          "payload": [
+            {
+                "model_name": "front_camera",
+                "model_type": "front_camera",
+                "rpy": [0, 0, 0],
+                "xyz": [0.15, 0, 0.0]
+            },
+            {
+                "model_name": "rear_camera",
+                "model_type": "rear_camera",
+                "rpy": [0, 0, 3.14159],
+                "xyz": [-0.15, 0, 0.0]
+            },
+            {
+                "model_name": "left_camera",
+                "model_type": "left_camera",
+                "rpy": [0, 0, 1.5708],
+                "xyz": [0, 0.15, 0.0]
+            },
+            {
+                "model_name": "right_camera",
+                "model_type": "right_camera",
+                "rpy": [0, 0, -1.5708],
+                "xyz": [0, -0.15, 0.0]
+            }
+        ]
       },
       {
           "model_type": "quadrotor_base",
@@ -58,12 +97,32 @@
               0.0
           ],
           "flight_time": 60,
-            "payload": [
-                {
-                    "model_name": "vga_camera",
-                    "model_type": "vga_camera"
-                }
-            ]
+          "payload": [
+            {
+                "model_name": "front_camera",
+                "model_type": "front_camera",
+                "rpy": [0, 0, 0],
+                "xyz": [0.15, 0, 0.0]
+            },
+            {
+                "model_name": "rear_camera",
+                "model_type": "rear_camera",
+                "rpy": [0, 0, 3.14159],
+                "xyz": [-0.15, 0, 0.0]
+            },
+            {
+                "model_name": "left_camera",
+                "model_type": "left_camera",
+                "rpy": [0, 0, 1.5708],
+                "xyz": [0, 0.15, 0.0]
+            },
+            {
+                "model_name": "right_camera",
+                "model_type": "right_camera",
+                "rpy": [0, 0, -1.5708],
+                "xyz": [0, -0.15, 0.0]
+            }
+        ]
       }
   ]
 }

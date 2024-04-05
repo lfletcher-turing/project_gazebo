@@ -75,6 +75,8 @@ for ((i=0; i<${num_drones}; i++)); do
   drone_ns+=("$drone_namespace$i")
 done
 
+camera_ns=("front_camera" "rear_camera" "left_camera" "right_camera")
+
 for ns in "${drone_ns[@]}"
 do
   tmuxinator start -n ${ns} -p tmuxinator/session.yml drone_namespace=${ns} simulation_config=${simulation_config} behavior_tree=${behavior_tree} &
@@ -94,11 +96,13 @@ fi
 if [[ ${yolo} == "true" ]]; then
 for ns in "${drone_ns[@]}"
 do
-  tmuxinator start -n yolo -p tmuxinator/yolo.yml drone_namespace=${ns} &
-  wait
+  for camera in "${camera_ns[@]}"
+  do
+    tmuxinator start -n ${ns}_${camera}_yolo -p tmuxinator/yolo.yml drone_namespace=${ns} camera_namespace=${camera} &
+    wait
+  done
 done
 fi
-
 
 tmuxinator start -n gazebo -p tmuxinator/gazebo.yml simulation_config=${simulation_config} &
 wait

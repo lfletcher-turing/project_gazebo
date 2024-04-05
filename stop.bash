@@ -63,10 +63,22 @@ fi
 # Make a tmux list of sessions to be killed
 tmux_session_list=("keyboard_teleop" "rosbag" "mocap" "gazebo")
 
+camera_ns=("front_camera" "rear_camera" "left_camera" "right_camera")
+
 # For each drone namespace, add to the list
 for ((i=0; i<num_drones; i++)); do
     tmux_session_list+=("drone$i")
 done
+
+
+
+for ((i=0; i<num_drones; i++)); do
+    for camera in "${camera_ns[@]}"
+    do
+        tmux_session_list+=("drone${i}_${camera}_yolo")
+    done
+done
+
 
 # If inside tmux session, get the current session name
 if [[ -n "$TMUX" ]]; then
