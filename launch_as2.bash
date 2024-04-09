@@ -8,10 +8,12 @@ usage() {
     echo "      -t: launch keyboard teleoperation"
     echo "      -n: drone namespace, default is drone0"
     echo "      -y: launch yolo"
+    echo "      -f: launch foxglove"
+    echo "      -s: headless gazebo"
 }
 
 # Arg parser
-while getopts "bmrtny" opt; do
+while getopts "bmrtnyfs" opt; do
   case ${opt} in
     b )
       behavior_tree="true"
@@ -30,6 +32,12 @@ while getopts "bmrtny" opt; do
       ;;
     y )
       yolo="true"
+      ;;
+    f )
+      foxglove="true"
+      ;;
+    s )
+      headless="true"
       ;;
     \? )
       echo "Invalid option: -$OPTARG" >&2
@@ -59,6 +67,8 @@ yolo=${yolo:="false"}
 record_rosbag=${record_rosbag:="false"}
 launch_keyboard_teleop=${launch_keyboard_teleop:="false"}
 drone_namespace=${drone_namespace:="drone"}
+foxglove=${foxglove:="false"}
+headless=${headless:="false"}
 
 if [[ ${swarm} == "true" ]]; then
   simulation_config="sim_config/world_swarm.json"
@@ -104,8 +114,13 @@ do
 done
 fi
 
-tmuxinator start -n gazebo -p tmuxinator/gazebo.yml simulation_config=${simulation_config} &
+tmuxinator start -n gazebo -p tmuxinator/gazebo.yml simulation_config=${simulation_config} headless=${headless} &
 wait
+
+if [[ ${foxglove} == "true" ]]; then
+  tmuxinator start -n foxglove -p tmuxinator/foxglove.yml &
+  wait
+fi
 
 # Attach to tmux session ${drone_ns[@]}, window mission
 tmux attach-session -t ${drone_ns[0]}:mission

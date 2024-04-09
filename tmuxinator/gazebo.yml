@@ -3,6 +3,7 @@
 <%
 # Input parameters
 simulation_config = @settings["simulation_config"]
+headless = @settings["headless"]
 
 # Other parameters
 use_sim_time      = true
@@ -19,3 +20,4 @@ windows:
         - ros2 launch as2_gazebo_assets launch_simulation.py
           use_sim_time:=<%= use_sim_time %>
           simulation_config_file:=<%= simulation_config %>
+          headless:=<%= headless %>

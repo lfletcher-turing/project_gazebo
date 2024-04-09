@@ -61,7 +61,7 @@ else
 fi
 
 # Make a tmux list of sessions to be killed
-tmux_session_list=("keyboard_teleop" "rosbag" "mocap" "gazebo")
+tmux_session_list=("keyboard_teleop" "rosbag" "mocap" "gazebo" "foxglove")
 
 camera_ns=("front_camera" "rear_camera" "left_camera" "right_camera")
 

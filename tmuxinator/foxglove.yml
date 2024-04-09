@@ -1,0 +1,14 @@
+# ~/.tmuxinator/project_crazyflie_basic.yml
+
+<%
+%>
+
+attach: true
+root: ./
+startup_window: foxglove
+# on_project_exit: pkill -9 -f "gazebo"
+windows:
+  - foxglove:
+      layout:
+      panes:
+        - ros2 launch foxglove_bridge foxglove_bridge_launch.xml

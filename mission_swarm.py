@@ -17,6 +17,8 @@ from as2_msgs.msg import YawMode
 from as2_msgs.msg import BehaviorStatus
 from as2_python_api.drone_interface import DroneInterface
 from as2_python_api.behavior_actions.behavior_handler import BehaviorHandler
+import numpy as np
+import cv2 as cv
 from yolov8_msgs.msg import DetectionArray
 
 class YOLOSubscriber(Node):
@@ -234,7 +236,7 @@ class SwarmConductor:
     def takeoff(self):
         """Takeoff swarm and wait for all drones"""
         for drone in self.drones.values():
-            drone.do_behavior("takeoff", 1, 0.7, False)
+            drone.do_behavior("takeoff", 10, 0.7, False)
         self.wait()
 
     def land(self):
