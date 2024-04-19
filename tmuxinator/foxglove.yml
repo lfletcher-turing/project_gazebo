@@ -11,4 +11,4 @@ windows:
   - foxglove:
       layout:
       panes:
-        - ros2 launch foxglove_bridge foxglove_bridge_launch.xml
+        - ros2 launch foxglove_bridge foxglove_bridge_launch.xml use_compression:=true client_topics_whitelist:='["/drone2/object_markers", "/drone2/front_camera/yolo/dbg_image"]'

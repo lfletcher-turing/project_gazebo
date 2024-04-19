@@ -5,6 +5,7 @@ mission.py
 """
 
 from time import sleep
+import time
 import rclpy
 from as2_python_api.drone_interface import DroneInterface
 
@@ -38,22 +39,24 @@ def drone_run(drone_interface: DroneInterface):
 
     ##### TAKE OFF #####
     print("Take Off")
-    drone_interface.takeoff(takeoff_height, speed=1.0)
+    drone_interface.takeoff(takeoff_height, speed=0.2)
     print("Take Off done")
     sleep(sleep_time)
 
     ##### GO TO #####
-    while True:
-        for goal in path:
-            print(f"Go to with path facing {goal}")
-            drone_interface.go_to.go_to_point_path_facing(goal, speed=speed)
-            print("Go to done")
-            sleep(sleep_time)
+    # while True:
+    #     for goal in path:
+    #         print(f"Go to with path facing {goal}")
+    #         drone_interface.go_to.go_to_point_path_facing(goal, speed=speed)
+    #         print("Go to done")
+    #         sleep(sleep_time)
 
+    time.sleep(10)
     ##### LAND #####
     print("Landing")
-    drone_interface.land(speed=0.5)
+    drone_interface.land(speed=0.1)
     print("Land done")
+   
 
     drone_interface.disarm()
 
@@ -61,7 +64,7 @@ def drone_run(drone_interface: DroneInterface):
 if __name__ == '__main__':
     rclpy.init()
 
-    uav = DroneInterface("drone0", verbose=False, use_sim_time=True)
+    uav = DroneInterface("drone1", verbose=False, use_sim_time=True)
 
     drone_run(uav)
 

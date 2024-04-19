@@ -307,7 +307,7 @@ class FlockingDrone(DroneInterfaceTeleop):
 
 
 if __name__ == '__main__':    
-    drones_ns = ['drone0', 'drone1', 'drone2', 'drone3', 'drone4', 'drone5', 'drone6', 'drone7', 'drone8']
+    drones_ns = ['drone0', 'drone1', 'drone2']
     config = {
         'separation_gain': 10.0,
         'cohesion_gain': 1.0,
