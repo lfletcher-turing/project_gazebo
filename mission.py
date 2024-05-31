@@ -43,13 +43,13 @@ def drone_run(drone_interface: DroneInterface):
     print("Take Off done")
     sleep(sleep_time)
 
-    ##### GO TO #####
-    # while True:
-    #     for goal in path:
-    #         print(f"Go to with path facing {goal}")
-    #         drone_interface.go_to.go_to_point_path_facing(goal, speed=speed)
-    #         print("Go to done")
-    #         sleep(sleep_time)
+    #### GO TO #####
+    while True:
+        for goal in path:
+            print(f"Go to with path facing {goal}")
+            drone_interface.go_to.go_to_point_path_facing(goal, speed=speed)
+            print("Go to done")
+            sleep(sleep_time)
 
     time.sleep(10)
     ##### LAND #####
@@ -64,7 +64,7 @@ def drone_run(drone_interface: DroneInterface):
 if __name__ == '__main__':
     rclpy.init()
 
-    uav = DroneInterface("drone1", verbose=False, use_sim_time=True)
+    uav = DroneInterface("drone0", verbose=False, use_sim_time=True)
 
     drone_run(uav)
 

@@ -34,13 +34,17 @@ class MultiTargetTrackingNode(Node):
         self.namespace = namespace
         self.detection_subscription = self.create_subscription(
             Detection3DArray,
-            f"/{namespace}/detections",
+            f"/{namespace}/transformed_detections",
             self.detection_callback, 10
         )
 
         self.num_target_pub = self.create_publisher(Int32, f"/{namespace}/num_targets", 10)
 
-        self.detections_pub = self.create_publisher(Detection3DArray, f"/{namespace}/filtered_detections", 10)        
+        self.detections_pub = self.create_publisher(Detection3DArray, f"/{namespace}/filtered_detections", 10)   
+
+        speed_qos_profile = rclpy.qos.QoSProfile(reliability=rclpy.qos.ReliabilityPolicy.BEST_EFFORT, depth=10, durability=rclpy.qos.DurabilityPolicy.VOLATILE)
+
+        self.velocity_sub = self.create_subscription(TwistStamped, f"/{namespace}/self_localization/twist", self.velocity_callback, speed_qos_profile)     
 
         self.dbscan = DBSCAN(eps=1.0, min_samples=1)
 
@@ -162,47 +166,57 @@ class MultiTargetTrackingNode(Node):
         # Get frame_id for drone body frame: 'drone_N/camera_array' -> 'drone_N'
         frame_id = detections_msg.header.frame_id + '/base_link'
 
-        # Publishes the biggest component as PoseWithCovariance (for visualization only!)
-        if len(self.gmphd.components) > 0:
-            comp = self.gmphd.components[0]
-            pose_cov_msg = PoseWithCovarianceStamped()
-            pose_cov_msg.header.frame_id = frame_id
-            pose_cov_msg.header.stamp = self.get_clock().now().to_msg()
+        # TODO Publishes the biggest component as PoseWithCovariance (for visualization only!)
+        # if len(self.gmphd.components) > 0:
+        #     comp = self.gmphd.components
+        #     pose_cov_msg = PoseWithCovarianceStamped()
+        #     pose_cov_msg.header.frame_id = frame_id
+        #     pose_cov_msg.header.stamp = self.get_clock().now().to_msg()
 
-            print(comp.mean)
+        #     print(comp, type(comp))
 
-            # Use mean as position
-            pose_cov_msg.pose.pose.position.x = comp.mean[0]
-            pose_cov_msg.pose.pose.position.y = comp.mean[1]
-            pose_cov_msg.pose.pose.position.z = comp.mean[2]
+        #     # Use mean as position
+        #     pose_cov_msg.pose.pose.position.x = comp.mean[0]
+        #     pose_cov_msg.pose.pose.position.y = comp.mean[1]
+        #     pose_cov_msg.pose.pose.position.z = comp.mean[2]
 
-            # Prepare covariance matrix
-            covariance = np.zeros((6, 6))  # 6x6 row-major matrix
-            dimz = self.gmphd.dim_z
-            covariance[:dimz, :dimz] = comp.cov[:dimz, :dimz]  # Need only position covariance
-            pose_cov_msg.pose.covariance = list(covariance.flatten())
+        #     # Prepare covariance matrix
+        #     covariance = np.zeros((6, 6))  # 6x6 row-major matrix
+        #     dimz = self.gmphd.dim_z
+        #     covariance[:dimz, :dimz] = comp.cov[:dimz, :dimz]  # Need only position covariance
+        #     pose_cov_msg.pose.covariance = list(covariance.flatten())
 
-            self.pose_cov_pub.publish(pose_cov_msg)
+        #     self.pose_cov_pub.publish(pose_cov_msg)
 
         filtered_detections = Detection3DArray()
         filtered_detections.header.frame_id = frame_id
         filtered_detections.header.stamp = self.get_clock().now().to_msg()
-        for comp in self.gmphd.components:
 
+        # print number of components
+        # print("Number of components: ", len(self.gmphd.components))
+
+        for comp in self.gmphd.components:
+            
             # Only report components above weight threshold as detections
             if comp.weight < self.config['weight_thresh']:
                 continue
 
+
             detection = Detection3D()
             detection.header = detections_msg.header
-            detection.bbox.center.position.x = comp.mean[0]
-            detection.bbox.center.position.y = comp.mean[1]
+            detection.bbox.center.position.x = comp.mean.flatten()[0]
+            detection.bbox.center.position.y = comp.mean.flatten()[1]
             detection.bbox.size.x = 2 * np.sqrt(comp.cov[0, 0])
             detection.bbox.size.y = 2 * np.sqrt(comp.cov[1, 1])
             detection.bbox.size.z = 0.1  # rviz complains about scale 0 otherwise
             if self.dimensions == 3:
                 detection.bbox.center.position.z = comp.mean[2]
                 detection.bbox.size.z = 2 * np.sqrt(comp.cov[2, 2])
+
+            # print detection
+
+            # print("Detected object at: ", detection.bbox.center.position.x, detection.bbox.center.position.y, detection.bbox.center.position.z)
+
 
             filtered_detections.detections.append(detection)
 
@@ -242,8 +256,10 @@ class MultiTargetTrackingNode(Node):
         Q *= self.config['process_noise'] ** 2
         return Q
     
-
-
+    def velocity_callback(self, msg):
+        v = msg.twist.linear
+        self.velocity = np.array([v.x, v.y, v.z])
+    
         
 
 def main(args=None):

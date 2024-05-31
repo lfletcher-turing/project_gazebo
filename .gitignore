@@ -1,3 +1,6 @@
 rosbags/*
 *.csv
 yolov9c.pt
+*.db3
+*.mcap
+*.pt

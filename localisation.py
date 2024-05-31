@@ -13,11 +13,8 @@ from vision_msgs.msg import Detection3DArray, Detection3D
 from rclpy.node import Node
 from scipy.spatial.transform import Rotation as R
 import numpy as np
-from geometry_msgs.msg import PointStamped
 from yolov8_msgs.msg import DetectionArray
-import numpy as np
 import tf2_geometry_msgs
-from builtin_interfaces.msg import Duration
 
 
 class RelativeLocalizer:
@@ -68,19 +65,19 @@ def point_to_bearing(bbox_center, K, D, K_inv):
 class RelativeLocalisationNode(Node):
     """ A simple subscriber node for YOLO detection and tracking """
 
-    def __init__(self, namespace: str, camera_names: List[str], publish_markers: bool = False):
+    def __init__(self, namespace: str, camera_names: List[str], publish_markers: bool = False, publish_rate: float = 10.0):
         super().__init__(f"{namespace}_yolo_subscriber")
         self.publish_markers = publish_markers
         self.namespace = namespace
         self.relative_localizers = {}
         self.camera_names = camera_names
         self.detections = {camera_name: None for camera_name in camera_names}
-        self.all_detection = Detection3DArray()
-        # self.detection_buffer = {camera_name: [] for camera_name in camera_names}
-        # self.camera_timers = {}
+        self.all_detections_camera = Detection3DArray()
+        self.all_detections_transformed = Detection3DArray()
         self.camera_indices = {camera_name: i for i, camera_name in enumerate(camera_names)}
-        self.last_processed_times = {camera_name: 0 for camera_name in camera_names}
         self.detections_ready = {camera_name: False for camera_name in camera_names}
+        self.latest_detections_transformed = {camera_name: None for camera_name in camera_names}
+        self.latest_detections_camera = {camera_name: None for camera_name in camera_names}
 
         for camera_name in camera_names:
             self.detection_subscription = self.create_subscription(
@@ -94,14 +91,14 @@ class RelativeLocalisationNode(Node):
             print(f"Creating marker publisher for {namespace}")
             self.marker_pub = self.create_publisher(MarkerArray, f"/{namespace}/object_markers", 10)
             self.prev_markers = {}
-            self.timer = self.create_timer(1.0, self.marker_timer_callback)
+            # self.timer = self.create_timer(1.0, self.marker_timer_callback)
 
         # create publishers for the relative localizations for each camera
         for camera_name in camera_names:
-            fx = 369.5
-            fy = 369.5
-            cx = 640.5
-            cy = 480.5
+            fx = 184.75
+            fy = 184.75
+            cx = 320.5
+            cy = 240.5
 
             K = np.array([[fx, 0, cx],
                           [0, fy, cy],
@@ -115,22 +112,35 @@ class RelativeLocalisationNode(Node):
         self.buffer = Buffer()
         self.listener = TransformListener(self.buffer, self)
 
-        detections_pub_topic = f"/{namespace}/detections"
-        self.detections_pub = self.create_publisher(Detection3DArray, detections_pub_topic, 10)
+        camera_detections_pub_topic = f"/{namespace}/camera_detections"
+        self.camera_detections_pub = self.create_publisher(Detection3DArray, camera_detections_pub_topic, 1)
 
-        
-        
+        transformed_detections_pub_topic = f"/{namespace}/transformed_detections"
+        self.transformed_detections_pub = self.create_publisher(Detection3DArray, transformed_detections_pub_topic, 1)
+        self.detection_publish_timer = self.create_timer(1.0 / publish_rate, self.publish_detections_callback)
 
-    def marker_timer_callback(self):
+    def do_publish_markers(self):
         marker_array = MarkerArray()
         current_marker_ids = set()
 
-        for detection in self.all_detection.detections:
+        # check and delete old markers
+        for marker_id in self.prev_markers:
+            marker = Marker()
+            marker.header.frame_id = f"{self.namespace}/base_link"
+            marker.header.stamp = self.get_clock().now().to_msg()
+            marker.ns = "object_markers"
+            marker.id = marker_id
+            marker.action = Marker.DELETE
+            marker_array.markers.append(marker)
+
+        for detection in self.all_detections_transformed.detections:
+            # print(f"Publishing marker for object at {detection.bbox.center.position.x}, {detection.bbox.center.position.y}, {detection.bbox.center.position.z}")
             marker = Marker()
             marker.header.frame_id = f"{self.namespace}/base_link"
             marker.header.stamp = self.get_clock().now().to_msg()
             marker.ns = "object_markers"
             marker.id = len(current_marker_ids)
+            # print(f"Marker ID: {marker.id}")
             marker.type = Marker.ARROW
             marker.action = Marker.ADD
             # marker.lifetime = Duration(sec=10, nanosec=0)
@@ -186,20 +196,22 @@ class RelativeLocalisationNode(Node):
 
     def yolo_detection_callback(self, msg, camera_name):
         # print(f"YOLO detection callback for {camera_name}")
-        current_time = self.get_clock().now().to_msg().sec
-        last_processed_time = self.last_processed_times[camera_name]
 
         # if current_time - last_processed_time < 1:
         #     return
 
-        out_detections_msg = Detection3DArray()
-        out_detections_msg.header.stamp = self.get_clock().now().to_msg()
 
         # set frame id to the camera frame
 
-        out_detections_msg.header.frame_id = f"{self.namespace}/{camera_name}"
+        raw_detection_list = []
+        camera_detections_list = []
+        transformed_detections_list = []
 
-        for i, detection in enumerate(msg.detections):
+        for detection in (msg.detections):
+
+            # consolidate raw detections into a single message and publish
+
+            raw_detection_list.append(detection)
 
             if detection.class_name != 'airplane':
                 continue
@@ -210,7 +222,7 @@ class RelativeLocalisationNode(Node):
 
             bbox_center = np.array([detection.bbox.center.position.x, detection.bbox.center.position.y])
             bbox_size = (detection.bbox.size.x, detection.bbox.size.y)
-            object_size = (0.67, 0.11, 0.67)  # quad base size with rotors (width, height, depth)
+            object_size = (0.67, 0.11, 0.67)  # quad base size with rotors (width, height, depth) # TODO put in config file 
 
             bearing = localiser.detection_to_bearing(bbox_center, bbox_size, object_size)
 
@@ -218,52 +230,86 @@ class RelativeLocalisationNode(Node):
 
             source_frame = f"{self.namespace}/{camera_name}"  # drone_X/camera_X_optical
             target_frame = f"{self.namespace}/base_link"
-
         
             try:
                 transform = self.buffer.lookup_transform(target_frame, source_frame, rclpy.time.Time())
             except Exception as e:
                 print(e)
                 continue
+            
+            time_stamp = self.get_clock().now().to_msg()
 
             point = PointStamped()
             point.header.frame_id = source_frame
-            point.header.stamp = self.get_clock().now().to_msg()
+            point.header.stamp = time_stamp
             point.point.x = bearing[2]
             point.point.y = -bearing[0]
             point.point.z = -bearing[1]
 
+            camera_detection = Detection3D()
+            camera_detection.header.frame_id = source_frame
+            camera_detection.header.stamp = time_stamp
+            camera_detection.bbox.center.position.x = point.point.x
+            camera_detection.bbox.center.position.y = point.point.y
+            camera_detection.bbox.center.position.z = point.point.z
+
+            camera_detection.bbox.size.x = object_size[2]
+            camera_detection.bbox.size.y = object_size[0]
+            camera_detection.bbox.size.z = object_size[1]
+
+            camera_detections_list.append(camera_detection)
+    
             # print(f"Original bearing: {point.point}, source frame: {source_frame}, target frame: {target_frame}")
 
             point_tf = tf2_geometry_msgs.do_transform_point(point, transform)
 
             # print(f"Transformed bearing: {point_tf.point}, source frame: {source_frame}, target frame: {target_frame}")
 
+            transformed_detection = Detection3D()
 
-            out_detection = Detection3D()
-            out_detection.header = out_detections_msg.header
-            out_detection.bbox.center.position.x = point_tf.point.x
-            out_detection.bbox.center.position.y = point_tf.point.y
-            out_detection.bbox.center.position.z = point_tf.point.z
+            transformed_detection.bbox.center.position.x = point_tf.point.x
+            transformed_detection.bbox.center.position.y = point_tf.point.y
+            transformed_detection.bbox.center.position.z = point_tf.point.z
+            transformed_detection.bbox.size.x = object_size[2]
+            transformed_detection.bbox.size.y = object_size[0]
+            transformed_detection.bbox.size.z = object_size[1]
+            transformed_detection.header.frame_id = source_frame
+            transformed_detection.header.stamp = time_stamp
 
-            out_detection.bbox.size.x = object_size[2]
-            out_detection.bbox.size.y = object_size[0]
-            out_detection.bbox.size.z = object_size[1]
+            transformed_detections_list.append(transformed_detection)
 
-            self.all_detection.detections.append(out_detection)
-
-            # out_detections_msg.detections.append(out_detection)
-            # self.detections[camera_name] = out_detections_msg.detections
-
-        self.last_processed_times[camera_name] = current_time
+        self.latest_detections_transformed[camera_name] = transformed_detections_list
+        self.latest_detections_camera[camera_name] = camera_detections_list
         self.detections_ready[camera_name] = True
 
-        if all(self.detections_ready.values()):
-            self.all_detection.header.stamp = self.get_clock().now().to_msg()
-            self.all_detection.header.frame_id = f"{self.namespace}/base_link"
-            self.detections_pub.publish(self.all_detection)
-            self.all_detection.detections.clear()
-            self.detections_ready = {camera_name: False for camera_name in self.camera_names}
+
+    def publish_detections_callback(self):
+        self.all_detections_camera.detections.clear()
+        self.all_detections_transformed.detections.clear()
+        # if there are new detections, add them to the all_detections list, otherwise, publish the existing list
+        for camera_name in self.camera_names:
+            try:
+                self.all_detections_camera.detections.extend(self.latest_detections_camera[camera_name])
+                self.all_detections_transformed.detections.extend(self.latest_detections_transformed[camera_name])
+                self.detections_ready[camera_name] = False
+            except Exception as e:
+                continue
+
+        time_now = self.get_clock().now().to_msg()
+        self.all_detections_transformed.header.stamp = time_now
+        self.all_detections_transformed.header.frame_id = f"{self.namespace}/base_link"
+        self.transformed_detections_pub.publish(self.all_detections_transformed)
+
+        if self.publish_markers:
+            self.do_publish_markers()
+        # 
+    
+        # self.all_detections_transformed.detections.clear()
+
+        self.all_detections_camera.header.stamp = time_now
+        self.all_detections_camera.header.frame_id = f"{self.namespace}/base_link"
+        self.camera_detections_pub.publish(self.all_detections_camera)
+        # self.all_detections_camera.detections.clear()
 
 def main(args=None):
     rclpy.init(args=args)
@@ -271,11 +317,12 @@ def main(args=None):
     namespace_list = ["drone0", "drone1", "drone2"]  # Replace with your desired namespaces
     camera_names = ["left_camera", "front_camera", "right_camera", "rear_camera"]  # Replace with your desired camera names
 
-    publish_markers = True
 
     if args is not None and len(args) > 1:
         if args[1] == "--markers":
             publish_markers = True
+    else:
+        publish_markers = False
 
     yolo_subscribers = []
     for namespace in namespace_list:
@@ -291,7 +338,6 @@ def main(args=None):
         yolo_subscriber.destroy_node()
 
     rclpy.shutdown()
-
 
 if __name__ == '__main__':
     main()
