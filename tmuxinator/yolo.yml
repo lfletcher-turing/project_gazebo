@@ -15,7 +15,8 @@ windows:
   - yolo:
       layout:
       panes:
-        - ros2 launch yolov8_bringup yolov8.launch.py
+        - ros2 launch yolov8_bringup yolov9.launch.py
           input_image_topic:=/<%= drone_namespace %>/sensor_measurements/<%= camera_namespace %>/image_raw
-          namespace:=/<%= drone_namespace %>/<%=camera_namespace %>/yolo model:=yolov8n.pt
+          namespace:=/<%= drone_namespace %>/<%=camera_namespace %>/yolo 
+          # model:=yolov8s.pt 
 

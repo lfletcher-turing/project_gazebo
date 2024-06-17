@@ -20,13 +20,13 @@ def get_filter():
     args.std_bearing = np.deg2rad(3.)  # [rad]
     args.num_clutter = 0
     args.max_components = 100
-    args.prob_detection = 1.0  # [%]
-    args.prob_survival = 0.99  # [%]
+    args.prob_detection = 0.9  # [%]
+    args.prob_survival = 1.0  # [%]
     args.thresh_trunc = 1e-5
     args.thresh_merge = 0.5
-    args.birth_weight = 1e-6  # [%]
+    args.birth_weight = 1e-5  # [%]
     args.std_pos = 1.0  # [m]
-    args.std_vel = 1.0  # [m/s]
+    args.std_vel = 10.0  # [m/s]
 
     # Unscented
     args.alpha = 0.1

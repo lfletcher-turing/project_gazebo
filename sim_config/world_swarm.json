@@ -5,7 +5,7 @@
         "model_type": "quadrotor_base",
         "model_name": "drone0",
         "xyz": [
-          -0.5,
+          -1.0,
           -0.57735,
           0.3
         ],
@@ -46,7 +46,7 @@
         "model_type": "quadrotor_base",
         "model_name": "drone1",
         "xyz": [
-          0.5,
+          1.0,
           -0.57735,
           0.3
         ],

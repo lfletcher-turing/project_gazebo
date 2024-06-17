@@ -1,10 +1,11 @@
+import argparse
 import csv
 from typing import List
 import rclpy
 from tf2_ros import Buffer, TransformListener
 from geometry_msgs.msg import PointStamped, Point, Pose, Twist, PoseStamped, PoseArray
 from visualization_msgs.msg import Marker, MarkerArray
-from vision_msgs.msg import Detection3DArray, Detection3D
+from vision_msgs.msg import Detection3DArray, Detection3D, Detection2DArray, Detection2D
 from rclpy.node import Node
 from scipy.spatial.transform import Rotation as R
 import numpy as np
@@ -16,8 +17,12 @@ import time
 
 class Metrics(Node):
 
-    def __init__(self, namespaces: List[str], publish_rate: float = 2, publish_namespace: str = 'metrics', save_csv: bool = False, vision_msgs: bool = True):
-        super().__init__('metrics')
+    def __init__(self, namespaces: List[str], publish_rate: float = 1, publish_namespace: str = 'metrics', save_csv: bool = False, vision_msgs: bool = True, publish = True):
+        super().__init__('metrics_node')
+        if self.has_parameter('use_sim_time'):
+            self.set_parameters([rclpy.parameter.Parameter('use_sim_time', rclpy.Parameter.Type.BOOL, True)])
+        else:
+            self.declare_parameter('use_sim_time', True)
         self.get_logger().info('Initializing Metrics Node')
 
         self.namespaces = namespaces
@@ -28,22 +33,61 @@ class Metrics(Node):
 
 
         self.save_csv = save_csv
+        self.vision_msgs = vision_msgs
+        self.publish = publish
+
+        raw_detection_headers = []
+
+
+        # camera, bboxx, bboxy, sizex, sizey, score, aspect_ratio
+
+        for i in range(5):
+            raw_detection_headers.append(f'raw_detection_{i+1}_camera')
+            raw_detection_headers.append(f'raw_detection_{i+1}_bbox_x')
+            raw_detection_headers.append(f'raw_detection_{i+1}_bbox_y')
+            raw_detection_headers.append(f'raw_detection_{i+1}_size_x')
+            raw_detection_headers.append(f'raw_detection_{i+1}_size_y')
+            raw_detection_headers.append(f'raw_detection_{i+1}_score')
+            raw_detection_headers.append(f'raw_detection_{i+1}_aspect_ratio')
 
         if self.save_csv:
-            self.csv_header = [
-                'timestamp', 'namespace', 'position_x', 'position_y', 'position_z',
-                'orientation_x', 'orientation_y', 'orientation_z', 'orientation_w',
-                'linear_x', 'linear_y', 'linear_z', 'angular_x', 'angular_y',
-                'angular_z', 'average_distance', 'std_distance', 'min_distance',
-                'max_distance', 'filtered_position_1_x', 'filtered_position_1_y',
-                'filtered_position_1_z', 'filtered_position_2_x', 'filtered_position_2_y',
-                'filtered_position_2_z', 'filtered_position_3_x', 'filtered_position_3_y',
-                'filtered_position_3_z', 'estimated_position_1_x', 'estimated_position_1_y',
-                'estimated_position_1_z', 'estimated_position_2_x', 'estimated_position_2_y',
-                'estimated_position_2_z', 'estimated_position_3_x', 'estimated_position_3_y',
-                'estimated_position_3_z', 'migration_waypoint_x', 'migration_waypoint_y',
-                'migration_waypoint_z']
-            self.csv_writer_funcs = {'pose': self.pose_csv_row, 'twist': self.twist_csv_row, 'detection': self.detection_csv_row, 'estimated_poses': self.estimated_pose_csv_row, 'migration_waypoint': self.migration_waypoint_csv_row}
+            if self.vision_msgs:
+                self.csv_header = [
+                    'timestamp', 'namespace', 'position_x', 'position_y', 'position_z',
+                    'orientation_x', 'orientation_y', 'orientation_z', 'orientation_w',
+                    'linear_x', 'linear_y', 'linear_z', 'angular_x', 'angular_y',
+                    'angular_z', 'average_distance', 'std_distance', 'min_distance',
+                    'max_distance', 'filtered_position_1_x', 'filtered_position_1_y',
+                    'filtered_position_1_z', 'filtered_position_2_x', 'filtered_position_2_y',
+                    'filtered_position_2_z', 'filtered_position_3_x', 'filtered_position_3_y',
+                    'filtered_position_3_z', 'estimated_position_1_x', 'estimated_position_1_y',
+                    'estimated_position_1_z', 'estimated_position_2_x', 'estimated_position_2_y',
+                    'estimated_position_2_z', 'estimated_position_3_x', 'estimated_position_3_y',
+                    'estimated_position_3_z', 'estimated_position_4_x', 'estimated_position_4_y',
+                    'estimated_position_4_z', 'estimated_position_5_x', 'estimated_position_5_y',
+                    'estimated_position_5_z', 'migration_waypoint_x', 'migration_waypoint_y',
+                    'migration_waypoint_z']
+                self.csv_header.extend(raw_detection_headers)
+                
+            else:
+                self.csv_header = [
+                    'timestamp', 'namespace', 'position_x', 'position_y', 'position_z',
+                    'orientation_x', 'orientation_y', 'orientation_z', 'orientation_w',
+                    'linear_x', 'linear_y', 'linear_z', 'angular_x', 'angular_y',
+                    'angular_z', 'average_distance', 'std_distance', 'min_distance',
+                    'max_distance', 'migration_waypoint_x', 'migration_waypoint_y',
+                    'migration_waypoint_z']
+
+            if self.vision_msgs:
+                
+                self.csv_writer_funcs = {
+                    'pose': self.pose_csv_row, 'twist': self.twist_csv_row,
+                    'detection': self.detection_csv_row,
+                    'estimated_poses': self.estimated_pose_csv_row,
+                    'migration_waypoint': self.migration_waypoint_csv_row,
+                    'raw_detections': self.raw_detection_csv_row}
+            else:
+                self.csv_writer_funcs = {'pose': self.pose_csv_row, 'twist': self.twist_csv_row, 'migration_waypoint': self.migration_waypoint_csv_row}
 
             # create filename with todays data and time
             file_stamp = time.strftime('%Y-%m-%d-%H-%M-%S')
@@ -63,7 +107,8 @@ class Metrics(Node):
                 'twist': None,
                 'actuator_command': None,
                 'object_markers': None,
-                'estimated_poses_from_detections': None
+                'estimated_poses_from_detections': None,
+                'raw_detections': None
             }
 
         self.latest_messages['swarm'] = {
@@ -75,7 +120,7 @@ class Metrics(Node):
         }
         self.messages_updated = {
             ns: {'camera_detections': False, 'transformed_detections': False,
-                  'filtered_detections': False, 'pose': False, 'twist': False, 'actuator_command': False, 'object_markers': False, 'estimated_poses_from_detections': False}
+                  'filtered_detections': False, 'pose': False, 'twist': False, 'actuator_command': False, 'object_markers': False, 'estimated_poses_from_detections': False, 'raw_detections': False}
                     for ns in namespaces}
         # print(f"namespaces: {self.namespaces}")
         # print(f"messages updated: {self.messages_updated}")
@@ -83,12 +128,48 @@ class Metrics(Node):
         self.messages_updated['swarm'] = {key: False for key in self.latest_messages['swarm'].keys()}
 
         # print(f"messages updated: {self.messages_updated}")
-        self.tf_buffer = Buffer()
-        self.tf_listener = TransformListener(self.tf_buffer, self)
+        if self.vision_msgs:
+            self.tf_buffer = Buffer()
+            self.tf_listener = TransformListener(self.tf_buffer, self)
 
         self.create_subscribers(namespaces)
-        self.create_publishers()
+        if self.publish:
+            self.create_publishers()
         self.create_timer(1.0 / self.publish_rate, self.publish_metrics)
+
+
+    def raw_detection_csv_row(self, detections):
+        if detections:
+            raw_detection_dict = {}
+            for i, detection in enumerate(detections.detections):
+                raw_detection_dict[f'raw_detection_{i+1}_camera'] = detection.header.frame_id.split('/')[1]
+                raw_detection_dict[f'raw_detection_{i+1}_bbox_x'] = detection.bbox.center.position.x
+                raw_detection_dict[f'raw_detection_{i+1}_bbox_y'] = detection.bbox.center.position.y
+                raw_detection_dict[f'raw_detection_{i+1}_size_x'] = detection.bbox.size_x
+                raw_detection_dict[f'raw_detection_{i+1}_size_y'] = detection.bbox.size_y
+                raw_detection_dict[f'raw_detection_{i+1}_score'] = detection.results[0].hypothesis.score
+                raw_detection_dict[f'raw_detection_{i+1}_aspect_ratio'] = detection.bbox.size_x / detection.bbox.size_y
+            if len(detections.detections) < 5:
+                for i in range(len(detections.detections), 5):
+                    raw_detection_dict[f'raw_detection_{i+1}_camera'] = np.nan
+                    raw_detection_dict[f'raw_detection_{i+1}_bbox_x'] = np.nan
+                    raw_detection_dict[f'raw_detection_{i+1}_bbox_y'] = np.nan
+                    raw_detection_dict[f'raw_detection_{i+1}_size_x'] = np.nan
+                    raw_detection_dict[f'raw_detection_{i+1}_size_y'] = np.nan
+                    raw_detection_dict[f'raw_detection_{i+1}_score'] = np.nan
+                    raw_detection_dict[f'raw_detection_{i+1}_aspect_ratio'] = np.nan
+            return raw_detection_dict
+        else:
+            raw_detection_dict = {}
+            for i in range(5):
+                raw_detection_dict[f'raw_detection_{i+1}_camera'] = np.nan
+                raw_detection_dict[f'raw_detection_{i+1}_bbox_x'] = np.nan
+                raw_detection_dict[f'raw_detection_{i+1}_bbox_y'] = np.nan
+                raw_detection_dict[f'raw_detection_{i+1}_size_x'] = np.nan
+                raw_detection_dict[f'raw_detection_{i+1}_size_y'] = np.nan
+                raw_detection_dict[f'raw_detection_{i+1}_score'] = np.nan
+                raw_detection_dict[f'raw_detection_{i+1}_aspect_ratio'] = np.nan
+            return raw_detection_dict
 
     def pose_csv_row(self, pose):
         if pose:
@@ -151,40 +232,36 @@ class Metrics(Node):
       
         
     def estimated_pose_csv_row(self, poses):
-
+        # print(f"Poses 1: {poses}")
         if poses:
+            esimated_poses_dict = {}
+            # print(f"Poses 2: {poses.poses}")
             for i, pose in enumerate(poses.poses):
-                return {
-                    f'estimated_position_{i+1}_x': pose.position.x,
-                    f'estimated_position_{i+1}_y': pose.position.y,
-                    f'estimated_position_{i+1}_z': pose.position.z
-                }
-            if len(poses.poses) < 3:
-                for i in range(len(poses.poses), 3):
-                    return {
-                        f'estimated_position_{i+1}_x': np.nan,
-                        f'estimated_position_{i+1}_y': np.nan,
-                        f'estimated_position_{i+1}_z': np.nan
-                    }
+                esimated_poses_dict[f'estimated_position_{i+1}_x'] = pose.position.x
+                esimated_poses_dict[f'estimated_position_{i+1}_y'] = pose.position.y
+                esimated_poses_dict[f'estimated_position_{i+1}_z'] = pose.position.z
+            if len(poses.poses) < 5:
+                for i in range(len(poses.poses), 5):
+                    esimated_poses_dict[f'estimated_position_{i+1}_x'] = np.nan
+                    esimated_poses_dict[f'estimated_position_{i+1}_y'] = np.nan
+                    esimated_poses_dict[f'estimated_position_{i+1}_z'] = np.nan
         else:
-            return {
-                'estimated_position_1_x': np.nan,
-                'estimated_position_1_y': np.nan,
-                'estimated_position_1_z': np.nan,
-                'estimated_position_2_x': np.nan,
-                'estimated_position_2_y': np.nan,
-                'estimated_position_2_z': np.nan,
-                'estimated_position_3_x': np.nan,
-                'estimated_position_3_y': np.nan,
-                'estimated_position_3_z': np.nan
-            }
+            esimated_poses_dict = {}
+            for i in range(5):
+                esimated_poses_dict[f'estimated_position_{i+1}_x'] = np.nan
+                esimated_poses_dict[f'estimated_position_{i+1}_y'] = np.nan
+                esimated_poses_dict[f'estimated_position_{i+1}_z'] = np.nan
+
+        # print(f"Estimated Poses Dict: {esimated_poses_dict}")
+        return esimated_poses_dict
         
     def migration_waypoint_csv_row(self, waypoint):
+        # print(f"Migration Waypoint: {waypoint}")
         if waypoint:
             return {
-                'migration_waypoint_x': waypoint.point.x,
-                'migration_waypoint_y': waypoint.point.y,
-                'migration_waypoint_z': waypoint.point.z
+                'migration_waypoint_x': waypoint.x,
+                'migration_waypoint_y': waypoint.y,
+                'migration_waypoint_z': waypoint.z
             }
         else:
             return {
@@ -197,25 +274,25 @@ class Metrics(Node):
     def create_subscribers(self, namespaces: List[str]):
         # subscribe to namespace topics
         # detection topics
-
-        for ns in namespaces:
-            self.create_subscription(Detection3DArray, f'/{ns}/camera_detections', self.create_callback(ns, 'camera_detections'), 10)
-            self.create_subscription(Detection3DArray, f'{ns}/transformed_detections', self.create_callback(ns, 'transformed_detections'), 10)
-            self.create_subscription(Detection3DArray, f'/{ns}/filtered_detections', self.create_callback(ns, 'filtered_detections' ), 10)
-            self.create_subscription(MarkerArray, f'/{ns}/object_markers', self.create_callback(ns, 'object_markers'), 10)
+        if self.vision_msgs:
+            for ns in namespaces:
+                self.create_subscription(Detection3DArray, f'/{ns}/camera_detections', self.create_callback(ns, 'camera_detections'), 1)
+                self.create_subscription(Detection3DArray, f'{ns}/transformed_detections', self.create_callback(ns, 'transformed_detections'), 1)
+                self.create_subscription(Detection3DArray, f'/{ns}/filtered_detections', self.create_callback(ns, 'filtered_detections' ), 1)
+                self.create_subscription(MarkerArray, f'/{ns}/object_markers', self.create_callback(ns, 'object_markers'), 1)
+                self.create_subscription(Detection2DArray, f'{ns}/raw_detections', self.create_callback(ns, 'raw_detections'), 1)
 
         # pose and twist topics
         for ns in namespaces:
-            qos_profile = rclpy.qos.QoSProfile(reliability=rclpy.qos.ReliabilityPolicy.BEST_EFFORT, depth=10, durability=rclpy.qos.DurabilityPolicy.VOLATILE)
+            qos_profile = rclpy.qos.QoSProfile(reliability=rclpy.qos.ReliabilityPolicy.BEST_EFFORT, depth=1, durability=rclpy.qos.DurabilityPolicy.VOLATILE)
             self.create_subscription(PoseStamped, f'/{ns}/self_localization/pose', self.create_callback(ns, 'pose'), qos_profile)
             self.create_subscription(Twist, f'/{ns}/self_localization/twist', self.create_callback(ns, 'twist'), qos_profile)
 
         for ns in namespaces:
-            self.create_subscription(Twist, f'/{ns}/actuator_command/twist', self.create_callback(ns, 'actuator_command'), 10)
+            self.create_subscription(Twist, f'/{ns}/actuator_command/twist', self.create_callback(ns, 'actuator_command'), 1)
         
         # migration waypoint topic
-        self.create_subscription(PointStamped, 'f/drone0/migration_waypoint', self.create_swarm_callback, 10)
-
+        self.create_subscription(Point, '/drone0/migration_waypoint', self.create_callback('swarm', 'migration_waypoint'), 1)
 
     def create_publishers(self):
 
@@ -231,10 +308,11 @@ class Metrics(Node):
                 'actuator_command': self.create_publisher(Twist, f'/metrics/{ns}/actuator_command', 10),
                 'object_markers': self.create_publisher(MarkerArray, f'/metrics/{ns}/object_markers', 10),
                 'estimated_poses_from_detections': self.create_publisher(PoseArray, f'/metrics/{ns}/estimated_poses', 10),
+                'raw_detections': self.create_publisher(Detection2DArray, f'/metrics/{ns}/raw_detections', 10)
             }
 
         self.metric_publishers['swarm'] = {
-            'migration_waypoint': self.create_publisher(PointStamped, '/metrics/swarm/migration_waypoint', 10),
+            'migration_waypoint': self.create_publisher(Point, '/metrics/swarm/migration_waypoint', 10),
             'agent_distances_mean': self.create_publisher(Float64, '/metrics/swarm/agent_distances_mean', 10),
             'agent_distances_std': self.create_publisher(Float64, '/metrics/swarm/agent_distances_std', 10),
             'agent_distances_min': self.create_publisher(Float64, '/metrics/swarm/agent_distances_min', 10),
@@ -243,7 +321,6 @@ class Metrics(Node):
 
 
     def create_callback(self, namespace: str, topic: str):
-
         def callback(msg):
             self.latest_messages[namespace][topic] = msg
             self.messages_updated[namespace][topic] = True
@@ -265,7 +342,7 @@ class Metrics(Node):
                 pose = self.latest_messages[ns]['pose']
                 positions.append(self.pose_to_array(pose.pose))
 
-        print(f'Positions: {positions}')
+        # print(f'Positions: {positions}')
 
         if len(positions) < 2:
             return 0.0, 0.0, 0.0, 0.0
@@ -275,24 +352,28 @@ class Metrics(Node):
         return np.mean(distances), np.std(distances), np.min(distances), np.max(distances)
     
     def calculated_detected_agent_poses(self, ns: str):
-        print(f"Calculating Detected Agent Poses for {ns}")
+        # print(f"Calculating Detected Agent Poses for {ns}")
         if self.latest_messages[ns]['filtered_detections']:
             detections = self.latest_messages[ns]['filtered_detections']
+            # print(f" Number of detections: {len(detections.detections)}")
         
             poses = PoseArray()
             for detection in detections.detections:
-                print(f"Detection: {detection.bbox.center.position.x}")
+                # print(f"Detection: {detection.bbox.center.position.x}")
                 drone_frame = f'{ns}/base_link'
                 world_frame = f'{ns}/odom'
                 try:
+                    # print(f"Time: {rclpy.time.Time().to_msg().sec}")
+                    # print(f"Sim Time: {self.get_clock().now().to_msg().sec}")
+                    # print(f"Drone Frame time: {self.tf_buffer.get_latest_common_time(world_frame, drone_frame)}")
                     transform = self.tf_buffer.lookup_transform(world_frame, drone_frame, rclpy.time.Time())
                     pose = PoseStamped()
                     pose.header.frame_id = drone_frame
                     pose.pose.position= Point(x=detection.bbox.center.position.x, y=detection.bbox.center.position.y, z=detection.bbox.center.position.z)
-                    print(f"Pose: {pose}")
+                    # print(f"Pose: {pose}")
                     transformed_pose = tf2_geometry_msgs.do_transform_pose(pose.pose, transform)
                     poses.poses.append(transformed_pose)
-                    print(f"Transformed Pose: {transformed_pose}")
+                    # print(f"Transformed Pose: {transformed_pose}")
                 except Exception as e:
                     self.get_logger().error(f'Error transforming pose: {e}')
             return poses
@@ -305,7 +386,7 @@ class Metrics(Node):
     
     def publish_metrics(self):
 
-        timestamp = self.get_clock().now().to_msg().sec
+        timestamp = self.get_clock().now().to_msg().sec * 1e9 + self.get_clock().now().to_msg().nanosec # convert to nanoseconds
 
 
         metrics_dicts = {}
@@ -340,21 +421,23 @@ class Metrics(Node):
             metrics_dicts['swarm']['min_distance'] = min
             metrics_dicts['swarm']['max_distance'] = max
 
+        if self.vision_msgs:
+            for ns in self.namespaces:
+                # print(f"Estimating Poses for {ns}")
+                estimated_poses = self.calculated_detected_agent_poses(ns)
 
-        for ns in self.namespaces:
-            # print(f"Estimating Poses for {ns}")
-            estimated_poses = self.calculated_detected_agent_poses(ns)
-
-            print(f"Estimated Poses: {estimated_poses}")
-            if estimated_poses:
-                self.metric_publishers[ns]['estimated_poses_from_detections'].publish(estimated_poses)
-            if self.save_csv:
+                # print(f"Estimated Poses: {estimated_poses}")
                 if estimated_poses:
-                    metrics_dicts[ns].update(self.csv_writer_funcs['estimated_poses'](estimated_poses))
-                else:
-                    metrics_dicts[ns].update(self.csv_writer_funcs['estimated_poses']([]))
+                    self.metric_publishers[ns]['estimated_poses_from_detections'].publish(estimated_poses)
+                if self.save_csv:
+                    if estimated_poses:
+                        # print(estimated_poses)
+                        metrics_dicts[ns].update(self.csv_writer_funcs['estimated_poses'](estimated_poses))
+                        # print the estimated poses
+                        # print(f"metric dict : {metrics_dicts[ns]}")
+                        # metrics_dicts[ns].update(self.csv_writer_funcs['estimated_poses']([]))
         
-        print(f"Metrics: {metrics_dicts}")
+        # print(f"Metrics: {metrics_dicts}")
 
         if self.save_csv:
             for ns, metrics_dict in metrics_dicts.items():
@@ -369,12 +452,17 @@ class Metrics(Node):
 def main(args=None):
     rclpy.init(args=args)
     namespaces = ['drone0', 'drone1', 'drone2']  # Replace with your actual namespaces
-    node = Metrics(namespaces, publish_rate=2.0, save_csv=True)  # Replace with your desired publish rate
+    node = Metrics(namespaces, publish_rate=5.0, save_csv=True, vision_msgs=True)  # Replace with your desired publish rate
     rclpy.spin(node)
     node.destroy_node()
     rclpy.shutdown()
 
 if __name__ == '__main__':
+    # parser = argparse.ArgumentParser()
+    # parser.add_argument('--vision_msgs', action='store_true', help='Use GPS for flocking')
+    # parser.add_argument('--save_csv', action='store_true', help='Use bagging')
+
+    # args = parser.parse_args()
     main()
 
 

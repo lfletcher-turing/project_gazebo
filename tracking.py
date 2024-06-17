@@ -31,16 +31,20 @@ class MultiTargetTrackingNode(Node):
 
     def __init__(self, namespace: str):
         super().__init__(f"{namespace}_multi_target_tracking_node")
+        if self.has_parameter('use_sim_time'):
+            self.set_parameters([rclpy.parameter.Parameter('use_sim_time', rclpy.Parameter.Type.BOOL, True)])
+        else:
+            self.declare_parameter('use_sim_time', True)
         self.namespace = namespace
         self.detection_subscription = self.create_subscription(
             Detection3DArray,
             f"/{namespace}/transformed_detections",
-            self.detection_callback, 10
+            self.detection_callback, 1
         )
 
-        self.num_target_pub = self.create_publisher(Int32, f"/{namespace}/num_targets", 10)
+        self.num_target_pub = self.create_publisher(Int32, f"/{namespace}/num_targets", 1)
 
-        self.detections_pub = self.create_publisher(Detection3DArray, f"/{namespace}/filtered_detections", 10)   
+        self.detections_pub = self.create_publisher(Detection3DArray, f"/{namespace}/filtered_detections", 1)   
 
         speed_qos_profile = rclpy.qos.QoSProfile(reliability=rclpy.qos.ReliabilityPolicy.BEST_EFFORT, depth=10, durability=rclpy.qos.DurabilityPolicy.VOLATILE)
 
@@ -58,11 +62,11 @@ class MultiTargetTrackingNode(Node):
             "use_dbscan": True,
             "use_gmphd": True,
             "process_noise": 2.0,
-            "birth_weight": 1e-6,
+            "birth_weight": 1e-5,
             "weight_thresh": 0.5,
             "trunc_thresh": 1e-5,
-            "merge_thresh": 2.0,
-            "max_components": 50
+            "merge_thresh": 0.5,
+            "max_components": 100
         }
 
 

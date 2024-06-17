@@ -9,7 +9,7 @@ import rclpy
 from tf2_ros import Buffer, TransformListener
 from geometry_msgs.msg import PointStamped
 from visualization_msgs.msg import Marker, MarkerArray
-from vision_msgs.msg import Detection3DArray, Detection3D
+from vision_msgs.msg import Detection3DArray, Detection3D, Detection2DArray, Detection2D, ObjectHypothesisWithPose
 from rclpy.node import Node
 from scipy.spatial.transform import Rotation as R
 import numpy as np
@@ -65,8 +65,13 @@ def point_to_bearing(bbox_center, K, D, K_inv):
 class RelativeLocalisationNode(Node):
     """ A simple subscriber node for YOLO detection and tracking """
 
-    def __init__(self, namespace: str, camera_names: List[str], publish_markers: bool = False, publish_rate: float = 10.0):
+    def __init__(self, namespace: str, camera_names: List[str], publish_markers: bool = False):
         super().__init__(f"{namespace}_yolo_subscriber")
+        if self.has_parameter('use_sim_time'):
+            self.set_parameters([rclpy.parameter.Parameter('use_sim_time', rclpy.Parameter.Type.BOOL, True)])
+        else:
+            self.declare_parameter('use_sim_time', True)
+        use_sim_time = self.get_parameter('use_sim_time').value
         self.publish_markers = publish_markers
         self.namespace = namespace
         self.relative_localizers = {}
@@ -74,17 +79,19 @@ class RelativeLocalisationNode(Node):
         self.detections = {camera_name: None for camera_name in camera_names}
         self.all_detections_camera = Detection3DArray()
         self.all_detections_transformed = Detection3DArray()
+        self.all_detections_raw = Detection2DArray()
         self.camera_indices = {camera_name: i for i, camera_name in enumerate(camera_names)}
         self.detections_ready = {camera_name: False for camera_name in camera_names}
         self.latest_detections_transformed = {camera_name: None for camera_name in camera_names}
         self.latest_detections_camera = {camera_name: None for camera_name in camera_names}
+        self.latest_detections_raw = {camera_name: None for camera_name in camera_names}
 
         for camera_name in camera_names:
             self.detection_subscription = self.create_subscription(
                 DetectionArray,
                 f"/{namespace}/{camera_name}/yolo/detections",
                 lambda msg, camera_name=camera_name: self.yolo_detection_callback(msg, camera_name),
-                10)
+                1)
             print(f"YOLO subscriber for {namespace}/{camera_name} created")
 
         if self.publish_markers:
@@ -112,12 +119,14 @@ class RelativeLocalisationNode(Node):
         self.buffer = Buffer()
         self.listener = TransformListener(self.buffer, self)
 
+        raw_detections_pub_topic = f"/{namespace}/raw_detections"
+        self.raw_detections_pub = self.create_publisher(Detection2DArray, raw_detections_pub_topic, 1)
+
         camera_detections_pub_topic = f"/{namespace}/camera_detections"
         self.camera_detections_pub = self.create_publisher(Detection3DArray, camera_detections_pub_topic, 1)
 
         transformed_detections_pub_topic = f"/{namespace}/transformed_detections"
         self.transformed_detections_pub = self.create_publisher(Detection3DArray, transformed_detections_pub_topic, 1)
-        self.detection_publish_timer = self.create_timer(1.0 / publish_rate, self.publish_detections_callback)
 
     def do_publish_markers(self):
         marker_array = MarkerArray()
@@ -209,12 +218,26 @@ class RelativeLocalisationNode(Node):
 
         for detection in (msg.detections):
 
-            # consolidate raw detections into a single message and publish
-
-            raw_detection_list.append(detection)
-
+        
             if detection.class_name != 'airplane':
                 continue
+            # consolidate raw detections into a single message and publish
+
+            raw_detection = Detection2D()
+            raw_detection.header.frame_id = f"{self.namespace}/{camera_name}"
+            raw_detection.header.stamp = self.get_clock().now().to_msg()
+            raw_detection.bbox.center.position.x = detection.bbox.center.position.x
+            raw_detection.bbox.center.position.y = detection.bbox.center.position.y
+            raw_detection.bbox.size_x = detection.bbox.size.x
+            raw_detection.bbox.size_y = detection.bbox.size.y
+            hypothesis = ObjectHypothesisWithPose()
+            hypothesis.hypothesis.class_id = detection.class_name
+            hypothesis.hypothesis.score = detection.score
+            raw_detection.results.append(hypothesis)
+
+            raw_detection_list.append(raw_detection)
+
+            
 
             localiser = self.relative_localizers[camera_name]
 
@@ -238,6 +261,8 @@ class RelativeLocalisationNode(Node):
                 continue
             
             time_stamp = self.get_clock().now().to_msg()
+
+            # print(time_stamp)
 
             point = PointStamped()
             point.header.frame_id = source_frame
@@ -280,18 +305,24 @@ class RelativeLocalisationNode(Node):
 
         self.latest_detections_transformed[camera_name] = transformed_detections_list
         self.latest_detections_camera[camera_name] = camera_detections_list
+        self.latest_detections_raw[camera_name] = raw_detection_list
         self.detections_ready[camera_name] = True
+
+        if all(self.detections_ready.values()):
+            self.publish_detections_callback()
 
 
     def publish_detections_callback(self):
         self.all_detections_camera.detections.clear()
         self.all_detections_transformed.detections.clear()
+        self.all_detections_raw.detections.clear()
         # if there are new detections, add them to the all_detections list, otherwise, publish the existing list
         for camera_name in self.camera_names:
+            self.detections_ready[camera_name] = False
             try:
                 self.all_detections_camera.detections.extend(self.latest_detections_camera[camera_name])
                 self.all_detections_transformed.detections.extend(self.latest_detections_transformed[camera_name])
-                self.detections_ready[camera_name] = False
+                self.all_detections_raw.detections.extend(self.latest_detections_raw[camera_name])
             except Exception as e:
                 continue
 
@@ -309,7 +340,15 @@ class RelativeLocalisationNode(Node):
         self.all_detections_camera.header.stamp = time_now
         self.all_detections_camera.header.frame_id = f"{self.namespace}/base_link"
         self.camera_detections_pub.publish(self.all_detections_camera)
+
+        self.all_detections_raw.header.stamp = time_now
+        self.all_detections_raw.header.frame_id = f"{self.namespace}/base_link"
+        self.raw_detections_pub.publish(self.all_detections_raw)
         # self.all_detections_camera.detections.clear()
+
+
+
+
 
 def main(args=None):
     rclpy.init(args=args)

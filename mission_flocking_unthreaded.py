@@ -1,17 +1,16 @@
 import argparse
 import threading
+import time
 import numpy as np
 from typing import List
 import rclpy
 from rclpy.node import Node
-from as2_python_api.drone_interface_teleop import DroneInterfaceTeleop
-from as2_python_api.behavior_actions.behavior_handler import BehaviorHandler
+from as2_python_api.drone_interface_teleop import DroneInterface
+
+from as2_python_api.modules.motion_reference_handler_module import MotionReferenceHandlerModule
 from as2_msgs.msg import BehaviorStatus
 from vision_msgs.msg import Detection3DArray
-import csv
-from geometry_msgs.msg import PoseStamped
-from scipy.spatial.distance import pdist
-from std_msgs.msg import Float64
+from geometry_msgs.msg import PoseStamped, Point, PointStamped
 
 dim = 5.0
 height = 10.0
@@ -23,20 +22,35 @@ path = [
         [dim, dim, height]
     ]
 
+# def run_func(drones_list: List[DroneInterfaceTeleop], func, *args):
+#     """ Run a function in parallel """
+#     threads = []
+#     for drone in drones_list:
+#         thread = threading.Thread(target=func, args=(drone, *args))
+#         threads.append(thread)
+#         thread.start()
+#     print("Waiting for threads to finish...")
+#     for thread in threads:
+#         thread.join()
+#     print("All done")
+
 class VisionPositionNode(Node):
     def __init__(self, drone):
         super().__init__(f'{drone.namespace}_vision_position')
         self.drone = drone
-        self.subscription = self.create_subscription(Detection3DArray, f'{drone.namespace}/filtered_detections', self.relative_pos_callback, 10)
+        self.subscription = self.create_subscription(Detection3DArray, f'{drone.namespace}/filtered_detections', self.relative_pos_callback, 1)
         self.relative_positions = None
 
 
     def relative_pos_callback(self,  msg):
         # print("Callback called")
-        self.drone.relative_positions = np.zeros((len(msg.detections), 3))
+        relative_positions = []
         for i, detection in enumerate(msg.detections):
-            self.drone.relative_positions[i] = np.array([detection.bbox.center.position.x, detection.bbox.center.position.y, detection.bbox.center.position.z])
-        # print(f"Relative positions: {self.drone.relative_positions}")
+            # print(f"Detection {i}: {detection.bbox.center.position}")
+            relative_positions.append([detection.bbox.center.position.x, detection.bbox.center.position.y, detection.bbox.center.position.z])
+        self.drone.set_relative_positions(np.array(relative_positions))
+
+        # print(f"Relative positions for drone {self.drone.my_id}: {self.drone.relative_positions}")
 
 
 class FlockingSwarm:
@@ -50,7 +64,7 @@ class FlockingSwarm:
         self.bagging = bagging
         self.migration_index = 0
         for index, name in enumerate(drones_ns):
-            self.drones[index] = FlockingDrone(name, index, config=config, use_gps=use_gps)
+            self.drones[index] = FlockingDrone(name, index, config=config, use_gps=use_gps, bagging=bagging)
 
         # if no migration path, generate random waypoint
         if not migration_path:
@@ -79,7 +93,7 @@ class FlockingSwarm:
 
     def takeoff(self, altitude: float):
         for drone in self.drones.values():
-            drone.do_behavior("takeoff", altitude, 5, False)
+            drone.do_behavior("takeoff", altitude, 2.5, False)
         self.wait()
 
     def shutdown(self):
@@ -111,15 +125,16 @@ class FlockingSwarm:
             for drone in self.drones.values():
                 drone.set_migration_index(self.migration_index)
                 drone.flock()
+            
+            # time.sleep(1/2)
+            # ROS2 sleep
+
+            # run_func(self.drones.values(), FlockingDrone.flock, self0)
+                # drone.flock()
+            # sleep for a bit
    
 
-    def distance_stats(self, positions: np.ndarray):
-        distances = pdist(positions)
-        self.distance_mean_pub.publish(Float64(distances.mean()))
-
-        
-
-          
+    
     def update_migration_index(self):
         if self.migration_path:
             current_goal = np.array(self.migration_path[self.migration_index])
@@ -153,54 +168,75 @@ class FlockingSwarm:
             drone.set_target_position(self.random_waypoint)
 
 
-class FlockingDrone(DroneInterfaceTeleop):
+class FlockingDrone(DroneInterface):
 
     def __init__(self, namespace: str, my_id: int, config: dict, use_gps = False, bagging = True):
-        super().__init__(namespace, use_sim_time=True)
+        super().__init__(namespace, use_sim_time=True) # test with false???
         self.my_id = my_id
         self.config = config
+        self.motion_ref_handler = MotionReferenceHandlerModule(drone=self)
         self.other_drones = None
         self.use_gps = use_gps
         self.target_position = None
         self.migration_path = None
         self.bagging = bagging
+        self.relative_positions = None
+        # set rate (Hz)
+        self.rate = 10
 
         self.last_command = np.zeros(3)
         self.detections = []
         self.poses = {}
+        self.start_time = time.time()
+
 
         if self.bagging:
-            self.migration_goal_pub = self.create_publisher(PoseStamped, f'/{namespace}/migration_waypoint', 10)
+            self.migration_goal_pub = self.create_publisher(Point, f'/{namespace}/migration_waypoint', 10)
 
     def set_target_position(self, target_position: List[float]):
         self.target_position = target_position
 
+
     def flock(self):
+        time_now = time.time()
+        # print('Loop time: ', time_now - self.start_time)
+        self.start_time = time_now
         # Get command from reynolds
         command = self.get_command_reynolds()
+        # print(f"Command: {command}")
         
         # Low-pass filter command
         command = self.smooth_command(command)
-
-        # Scale by gain and clip to max speed 
-        command = self.process_command(command)
 
         # Altitude control
         command = self.add_altitude_control(command)
 
         # Add migration 
         command = self.add_migration(command)
+        # print(f"Command after migration: {command}")
+
+        # Scale by gain and clip to max speed 
+        command = self.process_command(command)
+
+        # print(f"Command after processing: {command}")
         
         # Send velocity command
         self.send_velocity_command(command)
 
+        # Sleep for a bit
+        # time.sleep(1/self.rate)
+
     def get_command_reynolds(self):
         # Use either visual detections or other drones poses
         positions_rel = self.get_relative_positions()
+        # print(f"Relative positions for drone {self.my_id}: {positions_rel}")
 
         # if positions_rel is empty, return zero command
-        if positions_rel is None or not positions_rel.any():
+        if positions_rel is None:
+            # print("No relative positions")
             return np.zeros(3)
+        
+        # print(f'Relative positions: {positions_rel}')
         
         # Separation
         sep = self.separation(positions_rel)
@@ -211,14 +247,17 @@ class FlockingDrone(DroneInterfaceTeleop):
         # Alignment
         align = self.alignment(velocities_rel)
 
-        # Combine behaviors
-        command = (
-            -self.config['separation_gain'] * sep.mean(axis=0) +
-            self.config['cohesion_gain'] * coh + 
-            self.config['alignment_gain'] * align
-        )
+        # print(f"Separation: {sep.mean(axis=0) * self.config['separation_gain']}")
+        # print(f"Cohesion: {coh * self.config['cohesion_gain']}")
+        # print(f"Alignment: {align * self.config['alignment_gain']}")
 
-        return command
+        # Combine behaviors
+
+        separation = sep.mean(axis=0) * -self.config['separation_gain']
+        cohesion = coh * self.config['cohesion_gain']
+        alignment = align * self.config['alignment_gain']
+
+        return separation + cohesion + alignment
     
     # def separation(self, positions_rel: List[np.ndarray]) -> np.ndarray:
     #     sep = np.zeros(3)
@@ -229,15 +268,27 @@ class FlockingDrone(DroneInterfaceTeleop):
     #     return sep
 
     def separation(self, positions_rel: List[np.ndarray]) -> np.ndarray:
-        dist_inv = np.zeros(3)
-        if positions_rel is not None:
-            if positions_rel.any():
-                positions = np.array(positions_rel)
-                distances = np.linalg.norm(positions, axis=1)
-                safe_distances = np.where(distances > 0.01, distances, np.inf)
-                # print(f"safe_distances: {safe_distances}")
+        # print(f"positions_rel: {positions_rel}")
+        if positions_rel is None:
+            return np.zeros(3)
+                
+        positions = np.array(positions_rel)
+        distances = np.linalg.norm(positions, axis=1)
+        # print(f"distances: {distances}")
 
-                dist_inv = positions / safe_distances[:, np.newaxis] ** 2
+
+        # Filter out positions that are beyond the minimum separation distance
+
+
+        # print(f"close_positions: {close_positions}")
+        # print(f"close_distances: {close_distances}")
+
+        
+
+        # Prevent division by zero by setting a minimum safe distance
+        # Calculate the inverse distance weighted separation vector
+
+        dist_inv = positions / distances[:, np.newaxis] ** 2
 
         # print(f"separation: {dist_inv}")
 
@@ -252,8 +303,7 @@ class FlockingDrone(DroneInterfaceTeleop):
                 coh = np.mean(positions_rel, axis=0) 
                 # print(f"cohesio
                 # n: {coh}")
-            # print(f"cohesion:
-            #  {coh}")
+            # print(f"cohesion:  {coh}")
         return coh
     
     def alignment(self, velocities_rel: List[np.ndarray]) -> np.ndarray:
@@ -274,9 +324,9 @@ class FlockingDrone(DroneInterfaceTeleop):
         command *= self.config['command_gain']
         
         # Clip to max speed
-        max_speed = self.config['max_speed']
-        if np.linalg.norm(command) > max_speed:
-            command = command / np.linalg.norm(command) * max_speed
+        if np.linalg.norm(command) > self.config['max_speed']:
+            command /= np.linalg.norm(command)  # Make unit vector
+            command *= self.config['max_speed']  # Scale by max speed
 
         return command
 
@@ -294,10 +344,10 @@ class FlockingDrone(DroneInterfaceTeleop):
             current_goal = np.array(self.target_position)
         
         # publish the current goal
-        msg = PoseStamped()
-        msg.pose.position.x = current_goal[0]
-        msg.pose.position.y = current_goal[1]
-        msg.pose.position.z = current_goal[2]
+        msg = Point()
+        msg.x = current_goal[0]
+        msg.y = current_goal[1]
+        msg.z = current_goal[2]
         self.migration_goal_pub.publish(msg) 
 
         # print(f"Cur /rent go al: {current_goal}")
@@ -322,21 +372,21 @@ class FlockingDrone(DroneInterfaceTeleop):
     def send_velocity_command(self, 
                               command: np.ndarray = np.zeros(3),  
                               frame_id: str = 'earth',
-                              yaw_speed: float = 0.0):
+                              ):
         
         # convert to list
         command = command.tolist()
         
         # print the command
-        # print(f"Sending command {command} to drone {self.my_id}")
+        print(f"Sending command {command} to {self.namespace}")
         
-        self.motion_ref_handler.speed.send_speed_command_with_yaw_speed(command,  frame_id, yaw_speed)
+        self.motion_ref_handler.speed.send_speed_command_with_yaw_angle(command, pose=None, twist_frame_id=frame_id, yaw_angle=0.0)
 
 
     def get_relative_positions(self) -> List[np.ndarray]:
 
         # either from visual detections or pose estimates
-        positions_rel = []
+        positions_rel = None
         positions_rel_gps = []
 
         my_gps = np.array(self.position)
@@ -356,12 +406,21 @@ class FlockingDrone(DroneInterfaceTeleop):
 
                 positions_rel_gps.append(rel_pos)
         else:
-            positions_rel = self.relative_positions
-        
+            if len(self.relative_positions) > 0:
+                positions_rel = self.relative_positions
+
+                # print(f"Relative positions: {positions_rel}")
+
+            
+            
         # if self.logger:
         #     self.logger.log_data(self.get_clock().now().nanoseconds, self.namespace, positions_rel, positions_rel_gps)
 
         return np.array(positions_rel_gps) if self.use_gps else positions_rel
+    
+    def set_relative_positions(self, positions: np.ndarray):
+        # print(f"Setting relative positions for drone {self.my_id} to {positions}")
+        self.relative_positions = positions
     
 
     def get_altitude(self) -> float:
@@ -396,8 +455,8 @@ if __name__ == '__main__':
         ]
     
     path_line = [
-        [-3, 0, height],
-        [3, 0, height]
+        [-4, 0, height],
+        [4, 0, height]
     ]
 
 
@@ -413,8 +472,7 @@ if __name__ == '__main__':
     config = {
         'separation_gain': 7.0,
         'cohesion_gain': 1.0,
-        'alignment_gain': 1.0,
-        'separation_dist': 2.0,
+        'alignment_gain': 0.0,
         'command_gain': 1.0,
         'max_speed': 0.5,
         'smoothing_factor': 1.0,
@@ -427,7 +485,7 @@ if __name__ == '__main__':
 
     rclpy.init()
 
-    swarm = FlockingSwarm(drones_ns, config, use_gps=args.use_gps, bagging=args.bagging, migration_path=path_line)
+    swarm = FlockingSwarm(drones_ns, config, use_gps=args.use_gps, bagging=args.bagging, migration_path=path_square)
 
     if not args.use_gps:
         vision_nodes = [VisionPositionNode(drone) for drone in swarm.drones.values()]

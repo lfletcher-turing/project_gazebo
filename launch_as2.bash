@@ -72,7 +72,7 @@ foxglove=${foxglove:="false"}
 headless=${headless:="false"}
 
 if [[ ${swarm} == "true" ]]; then
-  simulation_config="sim_config/world_swarm_line.json"
+  simulation_config="sim_config/world_swarm.json"
   num_drones=3
 else
   simulation_config="sim_config/world.json" 
